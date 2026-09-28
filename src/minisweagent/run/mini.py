@@ -60,8 +60,23 @@ def _multiline_prompt() -> str:
     return prompt()
 
 
-def _prompt_for_initial_task(conversation_dir: Path | None, mode: str = "confirm") -> tuple[str, Path | None]:
-    """Ask the user for the first task, handling the `/h`, `/resume` and `/new` commands.
+def _apply_setup(config: dict, config_spec: list[str]) -> None:
+    """`/setup` before the run starts: run the onboarding wizard and adopt its settings for this run."""
+    from minisweagent.run.utilities.setup_wizard import run_setup_wizard
+
+    settings = run_setup_wizard()
+    model_config = config.setdefault("model", {})
+    model_config["model_name"] = settings.get("MSWEA_MODEL_NAME") or model_config.get("model_name")
+    # The wizard is authoritative for the effort now, so drop the value folded in from the old .env.
+    model_config["reasoning_effort"] = settings.get("MSWEA_REASONING_EFFORT")
+    model_config.get("model_kwargs", {}).pop("reasoning_effort", None)
+    console.print(
+        _welcome_board(get_model_name(config=model_config), config_spec, config.get("agent", {}), model_config)
+    )
+
+
+def _prompt_for_initial_task(config: dict, config_spec: list[str]) -> tuple[str, Path | None]:
+    """Ask the user for the first task, handling the `/h`, `/resume`, `/new` and `/setup` commands.
 
     Slash commands are handled here (rather than by the agent) because the model is only loaded
     after the user answers, keeping startup cheap. Returns the task to run and, when the user asked
@@ -69,13 +84,17 @@ def _prompt_for_initial_task(conversation_dir: Path | None, mode: str = "confirm
     """
     from minisweagent.agents.interactive import print_slash_commands_help, select_conversation
 
-    conversation_dir = Path(conversation_dir) if conversation_dir else None
+    agent_config = config.get("agent", {})
+    conversation_dir = Path(directory) if (directory := agent_config.get("conversation_dir")) else None
     while True:
         console.print("[bold yellow]What do you want to do?")
         console.print("[bold yellow]>[/bold yellow] ", end="")
         user_input = _multiline_prompt().strip()
         if user_input in ("/h", "/help"):
-            print_slash_commands_help(mode)
+            print_slash_commands_help(str(agent_config.get("mode", "confirm")))
+            continue
+        if user_input == "/setup":
+            _apply_setup(config, config_spec)
             continue
         if user_input == "/resume" or user_input.startswith("/resume "):
             selected = select_conversation(conversation_dir, user_input[len("/resume") :].strip())
@@ -250,9 +269,7 @@ def main(
     elif (configured_task := config.get("run", {}).get("task", UNSET)) is not UNSET:
         run_task = configured_task
     else:
-        run_task, prompted_resume = _prompt_for_initial_task(
-            config.get("agent", {}).get("conversation_dir"), str(config.get("agent", {}).get("mode", "confirm"))
-        )
+        run_task, prompted_resume = _prompt_for_initial_task(config, config_spec)
 
     model = get_model(config=config.get("model", {}))
     env = get_environment(config.get("environment", {}), default_type="local")

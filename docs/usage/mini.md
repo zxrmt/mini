@@ -89,6 +89,22 @@ also listed in the in-session `/h` help.
 The summarization prompt is the `agent.compaction_template` config value; override it in your config
 file to change the shape of the summary.
 
+## Changing provider, model or reasoning effort
+
+Type `/setup` at any prompt (or run `mini-extra config setup`) to walk through a provider, a model, a
+reasoning effort and an API key. The answers are written to the `.env` file in your global config
+directory, so you never have to edit that file by hand. The same wizard runs automatically the first
+time you start `mini`.
+
+The provider list covers the official endpoints (Anthropic, OpenAI, Gemini, OpenRouter) and the
+OpenAI/Anthropic-compatible ones (Kimi, DeepSeek, OpenCode Zen, GLM, Ollama), plus a custom entry
+where you type the base URL yourself. Picking a provider also clears the base URL of the previous
+one, which would otherwise keep redirecting requests to the old endpoint. API keys are never removed,
+so switching back and forth doesn't cost you a key.
+
+Running `/setup` mid-session applies the new settings immediately: the conversation is kept and the
+next step is sent to the model you just picked.
+
 ## Miscellaneous tips
 
 - `mini` saves the full history of your last run to your global config directory.

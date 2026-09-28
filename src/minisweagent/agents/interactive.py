@@ -41,7 +41,8 @@ def print_slash_commands_help(mode: str) -> None:
         f"[bold green]/m[/bold green] to enter multiline comment\n"
         f"[bold green]/new[/bold green] to start a new conversation (discards the current history)\n"
         f"[bold green]/resume[/bold green] to list saved conversations and continue one\n"
-        f"[bold green]/compact[/bold green] to summarize the conversation into a smaller context",
+        f"[bold green]/compact[/bold green] to summarize the conversation into a smaller context\n"
+        f"[bold green]/setup[/bold green] to change provider, model, reasoning effort or API key",
     )
 
 
@@ -579,6 +580,26 @@ class InteractiveAgent(DefaultAgent):
             if message and message not in self._MODE_COMMANDS_MAPPING:
                 return message
 
+    def _run_setup(self) -> None:
+        """`/setup`: run the onboarding wizard and apply the new settings to the running session."""
+        # Imported here because `run` sits above `agents`, and to keep the agent import cheap.
+        from minisweagent.models import get_model
+        from minisweagent.run.utilities.setup_wizard import run_setup_wizard
+
+        settings = run_setup_wizard()
+        if not (model_name := settings.get("MSWEA_MODEL_NAME")):
+            console.print("[bold red]No model selected, keeping the current one.[/bold red]")
+            return
+        config = self.model.config.model_dump() | {
+            "model_name": model_name,
+            "reasoning_effort": settings.get("MSWEA_REASONING_EFFORT"),
+        }
+        # Let `get_model` re-derive these for the new provider instead of carrying the old ones over.
+        config.pop("set_cache_control", None)
+        config.get("model_kwargs", {}).pop("reasoning_effort", None)
+        self.model = get_model(config=config)
+        console.print(f"[bold green]Now using {self.model.config.model_name}[/bold green]")
+
     def _prompt_and_handle_slash_commands(self, prompt: str, *, _multiline: bool = False) -> str:
         """Prompts the user, takes care of /h (followed by requery) and sets the mode. Returns the user input."""
         console.print(prompt, end="")
@@ -599,6 +620,9 @@ class InteractiveAgent(DefaultAgent):
                     f"[bold green]Conversation compacted[/bold green] "
                     f"[dim]({before} messages -> {len(self.messages)})[/dim]"
                 )
+            return self._prompt_and_handle_slash_commands(prompt)
+        if user_input == "/setup":
+            self._run_setup()
             return self._prompt_and_handle_slash_commands(prompt)
         if user_input == "/new" or user_input.startswith("/new "):
             task = user_input[len("/new") :].strip()

@@ -2104,3 +2104,36 @@ def test_new_task_after_submission_leaves_no_unanswered_tool_calls(model_factory
 
     assert info["exit_status"] == "Submitted"
     assert _unanswered_tool_calls(agent.messages) == []
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected_name", "expected_effort"),
+    [
+        ({"MSWEA_MODEL_NAME": "openai/gpt-5.4", "MSWEA_REASONING_EFFORT": "high"}, "openai/gpt-5.4", "high"),
+        ({"MSWEA_MODEL_NAME": "anthropic/claude-sonnet-4-5-20250929"}, "anthropic/claude-sonnet-4-5-20250929", None),
+    ],
+)
+def test_setup_slash_command_swaps_the_running_model(
+    settings, expected_name, expected_effort, default_config, monkeypatch
+):
+    """`/setup` applies the wizard's provider/model/effort to the live session without a restart."""
+    monkeypatch.delenv("MSWEA_REASONING_EFFORT", raising=False)
+    agent = InteractiveAgent(_make_model([("hi", [])]), LocalEnvironment(), **default_config)
+
+    with patch("minisweagent.run.utilities.setup_wizard.run_setup_wizard", return_value=settings):
+        agent._run_setup()
+
+    assert agent.model.config.model_name == expected_name
+    assert agent.model.config.model_kwargs.get("reasoning_effort") == expected_effort
+    # Cache control is re-derived for the new provider instead of being carried over.
+    assert agent.model.config.set_cache_control == ("default_end" if "anthropic" in expected_name else None)
+
+
+def test_setup_slash_command_keeps_the_model_when_no_model_was_chosen(default_config):
+    agent = InteractiveAgent(_make_model([("hi", [])]), LocalEnvironment(), **default_config)
+    model = agent.model
+
+    with patch("minisweagent.run.utilities.setup_wizard.run_setup_wizard", return_value={"MSWEA_CONFIGURED": "true"}):
+        agent._run_setup()
+
+    assert agent.model is model

@@ -16,6 +16,7 @@ from rich.rule import Rule
 from typer import Argument, Typer
 
 from minisweagent import global_config_file
+from minisweagent.run.utilities.setup_wizard import prompt, run_setup_wizard
 
 
 def _reload_config():
@@ -31,34 +32,6 @@ app = Typer(
 console = Console(highlight=False)
 
 
-_SETUP_HELP = """To get started, we need to set up your global config file.
-
-You can edit it manually or use the [bold green]mini-extra config set[/bold green] or [bold green]mini-extra config edit[/bold green] commands.
-
-This setup will ask you for your model and an API key.
-
-Here's a few popular models and the required API keys:
-
-[bold green]anthropic/claude-opus-4-6-20260205[/bold green] ([bold green]ANTHROPIC_API_KEY[/bold green])
-[bold green]openai/gpt-5.4[/bold green] or [bold green]openai/gpt-5.4-mini[/bold green] ([bold green]OPENAI_API_KEY[/bold green])
-[bold green]gemini/gemini-3-pro-preview[/bold green] ([bold green]GEMINI_API_KEY[/bold green])
-
-[bold]Note: Please always include the provider (e.g., "openai/") in the model name.[/bold]
-
-[bold yellow]You can leave any setting blank to skip it.[/bold yellow]
-
-More information at https://mini-swe-agent.com/latest/quickstart/
-To find the best model, check the leaderboard at https://swebench.com/
-"""
-
-
-def prompt(*args, **kwargs):
-    # Defer import to avoid slow import module
-    from prompt_toolkit.shortcuts.prompt import prompt as _prompt
-
-    return _prompt(*args, **kwargs)
-
-
 def configure_if_first_time():
     if not os.getenv("MSWEA_CONFIGURED"):
         console.print(Rule())
@@ -68,32 +41,9 @@ def configure_if_first_time():
 
 @app.command()
 def setup():
-    """Setup the global config file."""
-    console.print(_SETUP_HELP.format(global_config_file=global_config_file))
-    default_model = prompt(
-        "Enter your default model (e.g., anthropic/claude-opus-4-6-20260205): ",
-        default=os.getenv("MSWEA_MODEL_NAME", ""),
-    ).strip()
-    if default_model:
-        set_key(global_config_file, "MSWEA_MODEL_NAME", default_model)
-    console.print(
-        "[bold yellow]If you already have your API keys set as environment variables, you can ignore the next question.[/bold yellow]"
-    )
-    key_name = prompt("Enter your API key name (e.g., ANTHROPIC_API_KEY): ").strip()
-    key_value = None
-    if key_name:
-        key_value = prompt("Enter your API key value (e.g., sk-1234567890): ", default=os.getenv(key_name, "")).strip()
-        if key_value:
-            set_key(global_config_file, key_name, key_value)
-    if not key_value:
-        console.print(
-            "[bold red]API key setup not completed.[/bold red] Totally fine if you have your keys as environment variables."
-        )
-    set_key(global_config_file, "MSWEA_CONFIGURED", "true")
+    """Setup the global config file (provider, model, reasoning effort, API key)."""
+    run_setup_wizard()
     _reload_config()
-    console.print(
-        "\n[bold yellow]Config finished.[/bold yellow] If you want to revisit it, run [bold green]mini-extra config setup[/bold green]."
-    )
 
 
 @app.command()

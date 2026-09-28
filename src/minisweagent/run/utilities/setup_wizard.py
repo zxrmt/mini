@@ -68,6 +68,13 @@ PROVIDERS = [
     Provider(
         "GLM (Z.ai)", ["anthropic/glm-5.3"], "ANTHROPIC_API_KEY", "https://api.z.ai/api/anthropic", ANTHROPIC_BASE_KEYS
     ),
+    Provider(
+        "MiniMax",
+        ["anthropic/MiniMax-M3.1-Flash-Preview"],
+        "ANTHROPIC_API_KEY",
+        "https://api.minimax.io/anthropic",
+        ANTHROPIC_BASE_KEYS,
+    ),
     Provider("Ollama (local)", ["ollama_chat/qwen3-coder"], "", "http://localhost:11434", ("OLLAMA_API_BASE",)),
     Provider(
         "Ollama (cloud)",

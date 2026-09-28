@@ -99,10 +99,10 @@ def test_custom_model_name_via_other_entry(tmp_path):
 
 
 def test_custom_provider_asks_for_the_model_name_directly(tmp_path):
-    """Provider 11 has no suggestions, so the model question is a plain text prompt."""
+    """Provider 12 has no suggestions, so the model question is a plain text prompt."""
     config_file = tmp_path / ".env"
 
-    settings, _ = _run_wizard(config_file, ["11", "openai/my-model", "1", "https://my.host/v1", "sk-custom"])
+    settings, _ = _run_wizard(config_file, ["12", "openai/my-model", "1", "https://my.host/v1", "sk-custom"])
 
     assert settings["MSWEA_MODEL_NAME"] == "openai/my-model"
     assert settings["OPENAI_BASE_URL"] == settings["OPENAI_API_BASE"] == "https://my.host/v1"
@@ -122,6 +122,7 @@ def test_invalid_selection_is_rejected_until_a_valid_one_is_given(tmp_path):
         ({"ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic"}, "GLM (Z.ai)"),
         ({"OPENAI_API_BASE": "https://api.deepseek.com"}, "DeepSeek"),
         ({"OLLAMA_API_BASE": "http://localhost:11434"}, "Ollama (local)"),
+        ({"ANTHROPIC_API_BASE": "https://api.minimax.io/anthropic"}, "MiniMax"),
         # A base URL wins over the model name: `anthropic/` here is GLM, not Anthropic.
         (
             {"MSWEA_MODEL_NAME": "anthropic/glm-5.3", "ANTHROPIC_API_BASE": "https://api.z.ai/api/anthropic"},

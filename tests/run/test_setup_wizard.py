@@ -27,6 +27,8 @@ def test_wizard_writes_provider_model_effort_and_key(tmp_path):
 
     assert settings == {
         "MSWEA_CONFIGURED": "true",
+        "MSWEA_NOTIFY_CHANNEL": "terminal_bell",
+        "MSWEA_COST_TRACKING": "ignore_errors",
         "MSWEA_MODEL_NAME": "openai/kimi-for-coding",
         "MSWEA_REASONING_EFFORT": "high",
         "OPENAI_BASE_URL": "https://api.kimi.com/coding/v1",
@@ -36,9 +38,45 @@ def test_wizard_writes_provider_model_effort_and_key(tmp_path):
     content = config_file.read_text()
     assert "MSWEA_MODEL_NAME='openai/kimi-for-coding'" in content
     assert "MSWEA_REASONING_EFFORT='high'" in content
+    assert "MSWEA_NOTIFY_CHANNEL='terminal_bell'" in content
+    assert "MSWEA_COST_TRACKING='ignore_errors'" in content
     assert "OPENAI_API_BASE='https://api.kimi.com/coding/v1'" in content
     assert "OPENAI_API_KEY='sk-kimi'" in content
     assert "MSWEA_CONFIGURED='true'" in content
+
+
+def test_defaults_are_written_for_a_fresh_config_file(tmp_path):
+    """A brand new .env should be usable without ever hand-editing it."""
+    config_file = tmp_path / ".env"
+
+    # Empty answers for the effort accept the suggested default ("high").
+    settings, _ = _run_wizard(config_file, ["1", "1", "", "sk-ant"])
+
+    assert settings["MSWEA_CONFIGURED"] == "true"
+    assert settings["MSWEA_REASONING_EFFORT"] == "high"
+    assert settings["MSWEA_NOTIFY_CHANNEL"] == "terminal_bell"
+    assert settings["MSWEA_COST_TRACKING"] == "ignore_errors"
+    content = config_file.read_text()
+    assert "MSWEA_CONFIGURED='true'" in content
+    assert "MSWEA_REASONING_EFFORT='high'" in content
+    assert "MSWEA_NOTIFY_CHANNEL='terminal_bell'" in content
+    assert "MSWEA_COST_TRACKING='ignore_errors'" in content
+
+
+def test_notify_and_cost_tracking_defaults_survive_an_unset_effort(tmp_path):
+    """Only the effort is optional; the other defaults are always written."""
+    config_file = tmp_path / ".env"
+    config_file.write_text("MSWEA_NOTIFY_CHANNEL=none\nMSWEA_COST_TRACKING='default'\n")
+
+    settings, _ = _run_wizard(config_file, ["1", "1", "1", "sk-ant"])
+
+    assert settings["MSWEA_NOTIFY_CHANNEL"] == "terminal_bell"
+    assert settings["MSWEA_COST_TRACKING"] == "ignore_errors"
+    assert "MSWEA_REASONING_EFFORT" not in settings
+    content = config_file.read_text()
+    assert "MSWEA_NOTIFY_CHANNEL='terminal_bell'" in content
+    assert "MSWEA_COST_TRACKING='ignore_errors'" in content
+    assert "MSWEA_REASONING_EFFORT" not in content
 
 
 def test_switching_provider_clears_stale_base_url_but_keeps_other_api_keys(tmp_path):

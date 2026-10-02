@@ -96,6 +96,16 @@ reasoning effort and an API key. The answers are written to the `.env` file in y
 directory, so you never have to edit that file by hand. The same wizard runs automatically the first
 time you start `mini`.
 
+Besides your answers, the wizard always writes a few defaults so the resulting `.env` works out of
+the box without any manual editing:
+
+```bash
+MSWEA_CONFIGURED='true'
+MSWEA_REASONING_EFFORT='high'  # suggested default, pick another effort or leave it unset
+MSWEA_NOTIFY_CHANNEL=terminal_bell
+MSWEA_COST_TRACKING='ignore_errors'
+```
+
 The provider list covers the official endpoints (Anthropic, OpenAI, Gemini, OpenRouter) and the
 OpenAI/Anthropic-compatible ones (Kimi, DeepSeek, OpenCode Zen, GLM, Ollama), plus a custom entry
 where you type the base URL yourself. Picking a provider also clears the base URL of the previous

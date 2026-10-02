@@ -75,6 +75,7 @@ src/minisweagent/run/utilities/__init__.py
 src/minisweagent/run/utilities/config.py
 src/minisweagent/run/utilities/inspector.py
 src/minisweagent/run/utilities/mini_extra.py
+src/minisweagent/run/utilities/setup_wizard.py
 src/minisweagent/utils/__init__.py
 src/minisweagent/utils/log.py
 src/minisweagent/utils/serialize.py

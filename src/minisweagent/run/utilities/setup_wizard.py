@@ -24,6 +24,11 @@ ANTHROPIC_BASE_KEYS = ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_BASE")
 MANAGED_BASE_URL_KEYS = (*OPENAI_BASE_KEYS, *ANTHROPIC_BASE_KEYS, "OLLAMA_API_BASE")
 EFFORTS = ["(leave unset)", "minimal", "low", "medium", "high"]
 OTHER = "Other (enter manually)"
+# Written on every run so that a freshly configured `.env` is complete and works out of the box
+# instead of relying on the user hand-editing the file afterwards.
+DEFAULT_REASONING_EFFORT = "high"
+DEFAULT_NOTIFY_CHANNEL = "terminal_bell"
+DEFAULT_COST_TRACKING = "ignore_errors"
 
 
 @dataclass
@@ -167,9 +172,13 @@ def run_setup_wizard() -> dict[str, str]:
         os.getenv("MSWEA_MODEL_NAME", ""),
         "Model name (always include the provider, e.g. openai/gpt-5.4): ",
     )
-    effort = _choose("Reasoning effort", EFFORTS, os.getenv("MSWEA_REASONING_EFFORT") or EFFORTS[0])
+    effort = _choose("Reasoning effort", EFFORTS, os.getenv("MSWEA_REASONING_EFFORT") or DEFAULT_REASONING_EFFORT)
 
-    settings = {"MSWEA_CONFIGURED": "true"}
+    settings = {
+        "MSWEA_CONFIGURED": "true",
+        "MSWEA_NOTIFY_CHANNEL": DEFAULT_NOTIFY_CHANNEL,
+        "MSWEA_COST_TRACKING": DEFAULT_COST_TRACKING,
+    }
     cleared = list(MANAGED_BASE_URL_KEYS)
     if model_name:
         settings["MSWEA_MODEL_NAME"] = model_name
@@ -201,6 +210,8 @@ def run_setup_wizard() -> dict[str, str]:
             f"[bold]Provider[/bold]  {provider.name}\n"
             f"[bold]Model[/bold]     [green]{model_name or '[red]not set[/red]'}[/green]\n"
             f"[bold]Reasoning[/bold] {settings.get('MSWEA_REASONING_EFFORT', 'default')}\n"
+            f"[bold]Notify[/bold]    {DEFAULT_NOTIFY_CHANNEL}\n"
+            f"[bold]Costs[/bold]     {DEFAULT_COST_TRACKING}\n"
             f"[bold]Base URL[/bold]  {base_url or 'provider default'}\n"
             f"[bold]API key[/bold]   {key_line}\n"
             f"[bold]Saved to[/bold]  [dim]{global_config_file}[/dim]",

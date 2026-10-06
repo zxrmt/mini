@@ -1,10 +1,11 @@
+import contextlib
 import json
 import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -2137,3 +2138,75 @@ def test_setup_slash_command_keeps_the_model_when_no_model_was_chosen(default_co
         agent._run_setup()
 
     assert agent.model is model
+
+
+# --- live streaming of the model's reply ---
+
+
+def _streaming_agent(default_config, chunks, content="Hello world"):
+    """An InteractiveAgent backed by a LitellmModel whose completion is a scripted chunk stream."""
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.model_dump.return_value = {"role": "assistant", "content": content}
+    response.usage = SimpleNamespace(completion_tokens=5)  # real object so the speed badge can format
+    response.model_dump.return_value = {"usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105}}
+    from minisweagent.models.litellm_model import LitellmModel
+
+    agent = InteractiveAgent(model=LitellmModel(model_name="gpt-4"), env=LocalEnvironment(), **default_config)
+    agent.extra_template_vars = {"task": "Demo"}
+    agent.messages = [agent.model.format_message(role="user", content="hi")]
+    patches = (
+        patch("minisweagent.models.litellm_model.litellm.completion", return_value=iter(chunks)),
+        patch("minisweagent.models.litellm_model.litellm.stream_chunk_builder", return_value=response),
+        patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost", return_value=0.001),
+    )
+    return agent, patches
+
+
+def test_assistant_reply_is_streamed_live(default_config, capsys):
+    """Tokens are rendered as they arrive and the final render does not print them a second time."""
+    agent, patches = _streaming_agent(
+        default_config,
+        [
+            {"choices": [{"delta": {"role": "assistant"}}]},
+            {"choices": [{"delta": {"reasoning_content": "Thoughts."}}]},
+            {"choices": [{"delta": {"content": "Hello "}}]},
+            {"choices": [{"delta": {"content": "world"}}]},
+        ],
+    )
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        agent.query()
+    out = capsys.readouterr().out
+    assert "Current Task > Demo" in out
+    assert out.count("Hello world") == 1  # streamed once, not reprinted by _print_message
+    assert out.count("Thoughts.") == 1
+    # The header comes first, then the reasoning/content, then the context badge that could only
+    # be known once the turn finished.
+    assert out.index("Current Task > Demo") < out.index("Thoughts.") < out.index("Hello world") < out.index("ctx")
+
+
+def test_non_streaming_message_is_not_treated_as_streamed(default_config, capsys):
+    """A deterministic (non-streaming) reply keeps the plain, single-shot rendering."""
+    agent = InteractiveAgent(
+        model=make_text_model([("Counting", [{"command": "echo done"}])]),
+        env=LocalEnvironment(),
+        **default_config,
+    )
+    agent.extra_template_vars = {"task": "Demo"}
+    agent.messages = [agent.model.format_message(role="user", content="hi")]
+    agent.query()
+    out = capsys.readouterr().out
+    assert "Counting" in out
+    assert "Current Task > Demo" in out
+
+
+def test_stream_fragments_extract_reasoning_and_content_only():
+    from minisweagent.agents.interactive import _stream_fragments
+
+    assert _stream_fragments({"choices": [{"delta": {"reasoning_content": "r"}}]}) == [("dim grey50", "r")]
+    assert _stream_fragments({"choices": [{"delta": {"content": "c"}}]}) == [(None, "c")]
+    assert _stream_fragments({"choices": [{"delta": {"tool_calls": [{"function": {"arguments": "{}"}}]}}]}) == []
+    assert _stream_fragments({"choices": [{"delta": {"role": "assistant"}}]}) == []
+    assert _stream_fragments({"choices": []}) == []

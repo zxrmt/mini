@@ -270,3 +270,53 @@ def test_streaming_query_suppresses_litellm_provider_list(capsys):
     assert msg["extra"]["actions"] == [{"command": "echo hi", "tool_call_id": "call_1"}]
     assert msg["extra"]["output_tokens"] == 7
     assert "Provider List" not in capsys.readouterr().out
+
+
+def test_stream_callback_receives_every_chunk():
+    """A registered callback sees each streamed chunk, in order, so agents can render live."""
+    response = _mock_litellm_response([_bash_tool_call()])
+    chunks = _stream_chunks({"role": "assistant"}, {"content": "hi"}, {"content": "!"})
+    seen: list = []
+    with (
+        patch("minisweagent.models.litellm_model.litellm.completion", return_value=iter(chunks)),
+        patch("minisweagent.models.litellm_model.litellm.stream_chunk_builder", return_value=response),
+        patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost", return_value=0.001),
+    ):
+        model = LitellmModel(model_name="gpt-4")
+        model.set_stream_callback(seen.append)
+        model.query([{"role": "user", "content": "test"}])
+
+    assert seen == chunks
+
+
+def test_clearing_the_stream_callback_stops_delivery():
+    """`set_stream_callback(None)` detaches the handler (agents clear it after every turn)."""
+    response = _mock_litellm_response([_bash_tool_call()])
+    single_chunk = iter(_stream_chunks({"content": "hi"}))
+    seen: list = []
+    with (
+        patch("minisweagent.models.litellm_model.litellm.completion", return_value=single_chunk),
+        patch("minisweagent.models.litellm_model.litellm.stream_chunk_builder", return_value=response),
+        patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost", return_value=0.001),
+    ):
+        model = LitellmModel(model_name="gpt-4")
+        model.set_stream_callback(seen.append)
+        model.set_stream_callback(None)
+        model.query([{"role": "user", "content": "test"}])
+
+    assert seen == []
+
+
+def test_non_streaming_query_never_calls_the_callback():
+    """With `stream: false` the callback is irrelevant: the single response is not a stream."""
+    response = _mock_litellm_response([_bash_tool_call()])
+    seen: list = []
+    with (
+        patch("minisweagent.models.litellm_model.litellm.completion", return_value=response),
+        patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost", return_value=0.001),
+    ):
+        model = LitellmModel(model_name="gpt-4", model_kwargs={"stream": False})
+        model.set_stream_callback(seen.append)
+        model.query([{"role": "user", "content": "test"}])
+
+    assert seen == []

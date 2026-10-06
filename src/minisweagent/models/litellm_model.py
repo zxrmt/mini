@@ -101,6 +101,7 @@ class LitellmModel:
             with _suppress_litellm_debug_info():
                 litellm.utils.register_model(json.loads(Path(self.config.litellm_model_registry).read_text()))
         self._last_generation_timing: dict | None = None
+        self._stream_callback: Callable[[Any], None] | None = None
 
     def _completion(self, messages: list[dict], *, tools: list[dict] | None = None, **kwargs):
         """Call ``litellm.completion`` with the request envelope shared by every query path."""
@@ -110,6 +111,13 @@ class LitellmModel:
             **({"tools": tools} if tools else {}),
             **kwargs,
         )
+
+    def set_stream_callback(self, callback: Callable[[Any], None] | None) -> None:
+        """Register (or clear with ``None``) a callback invoked with every streamed chunk.
+
+        Agents use this to render tokens live instead of waiting for the rebuilt response.
+        """
+        self._stream_callback = callback
 
     def _query(self, messages: list[dict[str, str]], **kwargs):
         tools = kwargs.pop("tools", [BASH_TOOL])
@@ -145,6 +153,8 @@ class LitellmModel:
             first_token_time: float | None = None
             try:
                 for chunk in stream:
+                    if self._stream_callback is not None:
+                        self._stream_callback(chunk)
                     if first_token_time is None and _chunk_carries_output(chunk):
                         first_token_time = time.monotonic() - start
                     chunks.append(chunk)

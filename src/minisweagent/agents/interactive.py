@@ -31,6 +31,27 @@ BULLET, ELBOW, ELLIPSIS = (
 )
 
 
+def _stream_fragments(chunk) -> list[tuple[str | None, str]]:
+    """User-visible ``(style, text)`` fragments of a streaming chunk.
+
+    Reasoning is dimmed, content is plain. Tool-call deltas are skipped: the full command is
+    rendered once, after the turn has been parsed (streaming it argument by argument would just
+    repeat it).
+    """
+    choices = chunk.get("choices") if isinstance(chunk, dict) else getattr(chunk, "choices", None)
+    if not choices:
+        return []
+    choice = choices[0]
+    delta = choice.get("delta") if isinstance(choice, dict) else getattr(choice, "delta", None)
+    if isinstance(delta, dict):
+        reasoning, content = delta.get("reasoning_content"), delta.get("content")
+    else:
+        reasoning, content = getattr(delta, "reasoning_content", None), getattr(delta, "content", None)
+    fragments = [("dim grey50", text) for text in (reasoning,) if isinstance(text, str) and text]
+    fragments += [(None, text) for text in (content,) if isinstance(text, str) and text]
+    return fragments
+
+
 def print_slash_commands_help(mode: str) -> None:
     """Print the slash command help shown by `/h` (in-session and at the startup prompt)."""
     console.print(
@@ -201,6 +222,11 @@ class InteractiveAgent(DefaultAgent):
         self.cost_last_confirmed = 0.0
         self.conversation_path: Path | None = None
         self._awaiting_resume_message = False
+        self._streaming_started = False
+        self._stream_had_reasoning = False
+        self._stream_had_content = False
+        self._stream_trailing_newline = False
+        self._status = None
 
     def run(self, task: str = "", **kwargs) -> dict:
         if not self.messages:  # fresh conversation: give it its own file so `/resume` can find it later
@@ -295,6 +321,71 @@ class InteractiveAgent(DefaultAgent):
             return "assistant"
         return msg.get("type", "unknown")
 
+    def _assistant_status_line(self, msg: dict, *, stats: bool = True) -> str:
+        """The ``● [N ctx] (speed) (fTTFT) [step N] Current Task > task`` line.
+
+        ``stats=False`` drops the context/timing badges: those values are only known once the
+        turn has completed, so the header printed before a streamed response omits them.
+        """
+        parts = [f"[green]{BULLET}[/green]"]
+        if stats:
+            if (context := self._context_tokens(msg)) is not None:
+                parts.append(f"[bold green]{escape(f'[{self._format_token_count(context)} ctx]')}[/bold green]")
+            ttft, speed = self._timing_stats(msg)
+            if speed is not None:
+                parts.append(f"[bold green]{escape(f'({self._format_output_speed(speed)})')}[/bold green]")
+            if ttft is not None:
+                parts.append(f"[bold green]{escape(f'({self._format_first_token_time(ttft)})')}[/bold green]")
+        parts.append(f"[bold green]{escape(f'[step {self.n_calls}] Current Task >')}[/bold green]")
+        if task := " ".join(str(self.extra_template_vars.get("task", "")).split())[:100]:
+            parts.append(f"[dim cyan]{escape(task)}[/]")
+        return " ".join(parts)
+
+    def _print_actions(self, extra: dict) -> None:
+        for action in extra.get("actions", []):
+            if "tool_call_id" in action:  # text-based models already show the command in their reasoning
+                console.print(f"\n[green]{BULLET}[/green] ", end="")
+                console.print(_format_action_line(action["command"]), markup=False)
+
+    def _print_streamed_tail(self, msg: dict) -> None:
+        """Close a turn whose text was streamed live: print the badges and the tool calls.
+
+        The reasoning/content already appeared token by token, so reprinting them here would only
+        duplicate them; what is still missing is the context/speed badge and the action lines.
+        """
+        if not getattr(self, "_stream_trailing_newline", False):
+            console.print()  # terminate the line the streamed tokens left open
+        stats = []
+        if (context := self._context_tokens(msg)) is not None:
+            stats.append(f"{self._format_token_count(context)} ctx")
+        ttft, speed = self._timing_stats(msg)
+        if speed is not None:
+            stats.append(self._format_output_speed(speed))
+        if ttft is not None:
+            stats.append(self._format_first_token_time(ttft))
+        if stats:
+            console.print("[dim](" + escape(" \u00b7 ".join(stats)) + ")[/dim]")
+        self._print_actions(msg.get("extra", {}))
+
+    def _on_stream_chunk(self, chunk) -> None:
+        """Render one streamed chunk, printing the turn header before the first visible token."""
+        if not (fragments := _stream_fragments(chunk)):
+            return
+        if not self._streaming_started:
+            self._streaming_started = True
+            if (status := getattr(self, "_status", None)) is not None:
+                status.stop()  # the tokens replace the "Waiting for the LM" spinner
+            console.print("\n" + self._assistant_status_line({}, stats=False), soft_wrap=True)
+        for style, text in fragments:
+            if style is None:  # the answer: keep it visually apart from any preceding reasoning
+                if self._stream_had_reasoning and not self._stream_had_content:
+                    console.print()
+                self._stream_had_content = True
+            else:
+                self._stream_had_reasoning = True
+            console.print(text, end="", markup=False, style=style)
+            self._stream_trailing_newline = text.endswith("\n")
+
     def _print_message(self, msg: dict) -> None:
         extra = msg.get("extra", {})
         reasoning = get_reasoning_string(msg)
@@ -306,31 +397,17 @@ class InteractiveAgent(DefaultAgent):
             console.print("\n     ".join(rows), markup=False)
             return
         if (role := self._message_role(msg)) == "assistant":
-            task = " ".join(str(self.extra_template_vars.get("task", "")).split())[:100]
-            context = self._context_tokens(msg)
-            headline = escape(f"[step {self.n_calls}] Current Task >")
-            parts = [f"[green]{BULLET}[/green]"]
-            if context is not None:
-                parts.append(f"[bold green]{escape(f'[{self._format_token_count(context)} ctx]')}[/bold green]")
-            ttft, speed = self._timing_stats(msg)
-            if speed is not None:
-                parts.append(f"[bold green]{escape(f'({self._format_output_speed(speed)})')}[/bold green]")
-            if ttft is not None:
-                parts.append(f"[bold green]{escape(f'({self._format_first_token_time(ttft)})')}[/bold green]")
-            parts.append(f"[bold green]{headline}[/bold green]")
-            if task:
-                parts.append(f"[dim cyan]{escape(task)}[/]")
-            console.print("\n" + " ".join(parts), soft_wrap=True)
+            if getattr(self, "_streaming_started", False):  # already rendered token by token
+                self._print_streamed_tail(msg)
+                return
+            console.print("\n" + self._assistant_status_line(msg), soft_wrap=True)
         else:
             console.print(f"\n[bold green]{BULLET}[/bold green] [bold green]{role.capitalize()}[/bold green]")
         if reasoning:
             console.print(reasoning, markup=False, style="dim grey50")
         if content:
             console.print(content, markup=False)
-        for action in extra.get("actions", []):
-            if "tool_call_id" in action:  # text-based models already show the command in their reasoning
-                console.print(f"\n[green]{BULLET}[/green] ", end="")
-                console.print(_format_action_line(action["command"]), markup=False)
+        self._print_actions(extra)
 
     def query(self) -> dict:
         # Extend supermethod to handle human mode
@@ -351,8 +428,18 @@ class InteractiveAgent(DefaultAgent):
                     }
                     self.add_messages(msg)
                     return msg
+        # Stream the model's response to the terminal while it is being generated, instead of
+        # waiting for the full text. Models that expose a streaming hook (LitellmModel does) render
+        # token by token; others simply omit the hook and are printed as a whole once the call returns.
+        set_callback = getattr(self.model, "set_stream_callback", None)
+        if set_callback is not None:
+            set_callback(self._on_stream_chunk)
+        self._streaming_started = False
+        self._stream_had_reasoning = self._stream_had_content = False
+        self._stream_trailing_newline = False
         try:
-            with console.status("Waiting for the LM to respond..."):
+            with console.status("Waiting for the LM to respond...") as status:
+                self._status = status
                 return super().query()
         except TimeExceeded:
             # A wall-clock limit can't be lifted by raising the step limit
@@ -373,6 +460,11 @@ class InteractiveAgent(DefaultAgent):
             )
             self.config.step_limit = int(input("New step limit: "))
             return super().query()
+        finally:
+            self._status = None
+            self._streaming_started = False
+            if set_callback is not None:
+                set_callback(None)
 
     @staticmethod
     def _stdin_is_interactive() -> bool:
@@ -535,7 +627,7 @@ class InteractiveAgent(DefaultAgent):
         elif user_input:
             self.extra_template_vars["task"] = user_input
             self._drop_exit_message()
-            self._interrupt(f"> {user_input}", itype="UserNewTask")
+            self._interrupt(f"The user added a new task: {user_input}", itype="UserNewTask")
         return None
 
     def _drop_exit_message(self) -> None:

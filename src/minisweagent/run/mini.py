@@ -136,7 +136,7 @@ def _welcome_board(
         f"[bold]Reasoning[/bold] {reasoning_effort or 'default'}\n"
         f"[bold]Config[/bold]    {specs}\n"
         f"[bold]Mode[/bold]      {mode}",
-        title=f"mini-swe-agent {__version__}",
+        title=f"mini {__version__}",
         title_align="left",
         border_style="green",
         expand=False,

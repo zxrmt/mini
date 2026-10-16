@@ -80,6 +80,13 @@ PROVIDERS = [
         "https://api.minimax.io/anthropic",
         ANTHROPIC_BASE_KEYS,
     ),
+    Provider(
+        "Xiaomi MiMo",
+        ["openai/mimo-v2.6-pro", "openai/mimo-v2.6-flash"],
+        "OPENAI_API_KEY",
+        "https://token-plan-sgp.xiaomimimo.com/v1",
+        OPENAI_BASE_KEYS,
+    ),
     Provider("Ollama (local)", ["ollama_chat/qwen3-coder"], "", "http://localhost:11434", ("OLLAMA_API_BASE",)),
     Provider(
         "Ollama (cloud)",
